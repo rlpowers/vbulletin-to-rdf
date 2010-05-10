@@ -25,8 +25,8 @@ wget -m --no-parent --directory-prefix=test http://www.nomorepanic.co.uk/archive
 But mdhealthforum.com robots.txt disallows everything.
 wget -m --no-parent --directory-previx=test http://mdhealthforum.com/archive/     --quota=10m
 
-You will then have a set of t-*.html files, e.g.,
-test/www.sjwinfo.org/forum/archive/index.php/t-*.html, among other files.
+You will then have a set of t-*.html files, among others, e.g.,
+test/www.sjwinfo.org/forum/archive/index.php/t-*.html.
 Each of the t-*.html files is the vBulletin archive for a single thread.
 
 To run the present script:
@@ -60,20 +60,36 @@ There are several sioc:Threads, each of which can have several sioc:Posts.
 Each sioc:Post has one sioc:Content.
 doOneFile() below walks through the required states.
 
-All the text from the archive is converted to UTF-8 with utf8_encode().
+If there are keywords then we relate keywords to the Posts that house them.
+We declare that each of the Posts has the keyword as a sioc:topic.
+Since sioc:topic is an ObjectProperty, we create an individual, e.g.,
+http://www.example.org#depression.
+You can edit the present script to change the namespace to your needs.
 
-Upgrades
---------
-A possible upgrade would deposit some vocabulary in the RDF that describes the
-keywords if they are chosen.
-While one might use skos:note here, it does not seem like a proper fit.
-Suggestions are welcome.
+All the text from the archive is converted to UTF-8 with utf8_encode().
 
 The workflow of the present script could be combined into a wget-like crawler.
 
 DERI has been working on producing SIOC directly from vBulletin boards.
 Google 'sioc vbulletin'.
 http://www.johnbreslin.com/blog/2008/02/15/a-funny-thing-happened-on-the-way-to-the-forum-article-in-indo-about-10-years-of-boardsie/
+
+iao:mentions
+------------
+sioc:topic admittedly is being somewhat misused here for connecting posts to
+keywords.
+A better choice might be to use the object property iao:mentions from the
+Information Artifact Ontology.
+iao:mentions is a subproperty of iao:'is about', which has a domain
+iao:'information content entity'.
+So our sioc:Post would also be an iao:'information content entity'.
+There is no specified range for iao:mentions, so we again would have the individual
+created in the http://www.example.org namespace as the object.
+sioc:topic is a subproperty of dcterms:subject, which has no range specification
+other than that the range value is non-literal.
+iao:mentions has no specified range either.
+Perhaps one could use skos:Concept as the object for our use of either of these
+properties.
 
 Windows
 -------
@@ -170,7 +186,7 @@ function findPost( $line, $thread )
         }
         else
         {
-            fprintf( STDERR, "findPost:  Cannot preg_match() username.\n" );
+            fprintf( STDERR, "vBulletin2RDF findPost:  Cannot preg_match() username.\n" );
             fprintf( STDERR, "%s", $line );
             exit();
         }
@@ -249,7 +265,7 @@ function findContent( $line, $pile )
     /* Hold the $content until we can look at the whole thing. */
 	if ( preg_match('/<div class="posttext">(.*)<\/div><\/div>/', $line, $matches ) )
 	{
-	    if ( $pile != "" ) { fprintf( STDERR, "findContent:  \$pile not empty.\n" ); exit(); }
+	    if ( $pile != "" ) { fprintf( STDERR, "vBulletin2RDF findContent:  \$pile not empty.\n" ); exit(); }
         $content = $matches[1];
         
         /* We already are enforcing utf-8 in doOneFile(), below.
@@ -262,7 +278,7 @@ function findContent( $line, $pile )
 	}
 	else if ( preg_match('/<div class="posttext">(.*)<br \/>(.*)/U', $line, $matches ) )
 	{
-        if ( $pile != "" ) { fprintf( STDERR, "findContent:  \$pile not empty.\n" ); exit(); }
+        if ( $pile != "" ) { fprintf( STDERR, "vBulletin2RDF findContent:  \$pile not empty.\n" ); exit(); }
         $pile = $matches[1] . "\n" . $matches[2];
         return array( 0, 0, $pile );
 	}
@@ -291,7 +307,7 @@ function replaceAmpersand( $matches )
 {
     if ( substr( $matches[0], 0, 1 ) != "&" )
     {
-        fprintf( STDERR, "replaceAmpersand:  Not an ampersand.\n" );
+        fprintf( STDERR, "vBulletin2RDF replaceAmpersand:  Not an ampersand.\n" );
         fprintf( STDERR, "%s\n", $matches[1] );
         exit();
     }
@@ -305,7 +321,7 @@ doOneFile()
 Each t-*.html file in the archive holds one Thread.
 
 ---------------------------------------------------------------------------------*/
-function doOneFile( $directory, $file, $echoSite, $echoForum, $keywords )
+function doOneFile( $directory, $file, $echoSite, $echoForum, $sioc, $iao, $keywords )
 {
 	$needSite     = 1;
 	$needForum    = 0;
@@ -378,6 +394,8 @@ function doOneFile( $directory, $file, $echoSite, $echoForum, $keywords )
             {
                 if ( $keywords )
                 {
+                    
+                    /* Look for the first of the $keywords. */
                     foreach ( $keywords as $word )
                         if ( preg_match( "/$word/i", $content ) ) /* Ignore case. */
                         {
@@ -389,6 +407,20 @@ function doOneFile( $directory, $file, $echoSite, $echoForum, $keywords )
                                 $siocedThread = 1;
                             }
                             echo $siocPost;
+                            
+                            /* Find all the $keywords that are mentioned. */
+                            foreach ( $keywords as $word1 )
+                                if ( preg_match( "/$word1/i", $content ) ) /* Ignore case. */
+                                {
+                                    if ( $sioc )
+                                    {
+                                        $word2 = preg_replace( "/ /", "_", $word1 );
+                                        echo "  <sioc:topic rdfs:label=\"".$word1."\"";
+                                        echo " rdf:resource=\"ex:".$word2."\"/>\n";
+                                    }
+                                    if ( $iao )
+                                        echo "  <iao:mentions>$word1</iao:mentions>\n";
+                                }
                             echo $siocContent;
                             echo "</sioc:Post>\n";
                             break; /* the foreach. */
@@ -416,6 +448,30 @@ function doOneFile( $directory, $file, $echoSite, $echoForum, $keywords )
 } /* doOneFile */
 
 /*---------------------------------------------------------------------------------
+parseArgs()  Patrick's routine to consume input arguments
+-----------------------------------------------------------------------------------
+
+We have lifted this compressed version of Patrick's routine shamelessly from
+http://pwfisher.com/nucleus/index.php?itemid=45
+
+'patrick at pwfisher dot com' describes this also in a comment in
+http://php.net/manual/en/features.commandline.php
+
+---------------------------------------------------------------------------------*/
+function parseArgs($argv){
+    array_shift($argv); $o = array();
+    foreach ($argv as $a){
+        if (substr($a,0,2) == '--'){ $eq = strpos($a,'=');
+            if ($eq !== false){ $o[substr($a,2,$eq-2)] = substr($a,$eq+1); }
+            else { $k = substr($a,2); if (!isset($o[$k])){ $o[$k] = true; } } }
+        else if (substr($a,0,1) == '-'){
+            if (substr($a,2,1) == '='){ $o[substr($a,1,1)] = substr($a,3); }
+            else { foreach (str_split(substr($a,1)) as $k){ if (!isset($o[$k])){ $o[$k] = true; } } } }
+        else { $o[] = $a; } }
+    return $o;
+} /* parseArgs() */
+
+/*---------------------------------------------------------------------------------
 main
 -----------------------------------------------------------------------------------
 
@@ -423,28 +479,53 @@ We open all the files in the $directory and process all the lines in each file.
 
 ---------------------------------------------------------------------------------*/
 
-/* Here is the $directory for the t-*.html files. */
-$directory = $argv[1];
-if ( $directory == "" )
+/* Parse the arguments with Patrick's script. */
+$args = parseArgs( $argv );
+if ( !count( $args ) )
 {
     echo "\n";
+    echo "vBulletin2RDF  Map a vBulletin forum archive to RDF.\n";
+    echo "\n";
+    echo "directory/ holds your t-*.html files.  directory/ must end with a '/'.\n";
+    echo "[keywords] are optional.\n";
+    /**echo "[--sioc] to use sioc:topic for the keywords.  This is the default.\n";
+    echo "[--iao]  to use also iao:mentions for the keywords, in addition to sioc:topic.\n";**/
+    echo "\n";
     echo "Prototype:\n";
-    echo "php -f vBulletin2RDF.php directory [keywords] > output.rdf\n";
+    echo "php -f vBulletin2RDF.php directory/          [keywords] > output.rdf\n";
+    /**echo "php -f vBulletin2RDF.php directory/ [--sioc] [keywords] > output.rdf\n";
+    echo "php -f vBulletin2RDF.php directory/ [--iao]  [keywords] > output.rdf\n";**/
     echo "\n";
     echo "Examples:\n";
     echo "php -f vBulletin2RDF.php test/www.sjwinfo.org/forum/archive/index.php/\n";
     echo "php -f vBulletin2RDF.php test/www.sjwinfo.org/forum/archive/index.php/ depression\n";
     echo "php -f vBulletin2RDF.php test/www.sjwinfo.org/forum/archive/index.php/ depression \"side effects\" \n";
+    /**echo "php -f vBulletin2RDF.php test/www.sjwinfo.org/forum/archive/index.php/ --sioc depression\n";
+    echo "php -f vBulletin2RDF.php test/www.sjwinfo.org/forum/archive/index.php/ --iao  depression\n";**/
     echo "\n";
     exit();
 }
 
-/* Here are our optional $keywords in the content. */
-$keywords = $argv;
-unset( $keywords[ 0 ] ); /* Eliminate the vBulletin2RDF.php argument. */
-unset( $keywords[ 1 ] ); /* Eliminate the $directory argument. */
-$keywords = array_values( $keywords ); /* Slide the array back to [0]. */
+/* Here is the $directory for the t-*.html files. */
+$directory = $args[ 0 ];
+unset( $args[ 0 ] );
 
+/* Here are our flags. */
+$sioc = true;
+/**$iao  = !is_null( $args[ iao ] );**/
+$iao  = false;
+
+/* Here are our keywords. */
+$keywords = $args;
+foreach ( $keywords as $key => $value )
+    if ( !is_numeric( $key ) )
+        unset( $keywords[ $key ] ); /* Eliminate the non-numerically keyed slots. */
+    else
+        $keywords[ $key ] = utf8_encode( $keywords[ $key ] ); /* Enforce UTF-8. */
+$keywords = array_values( $keywords ); /* Slide the array back. */
+/**foreach ( $keywords as $key => $value ) echo "$key => $value\n";**/
+
+/* Open the directory. */
 $dir = opendir( $directory );
 echo "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
 echo "<rdf:RDF\n";
@@ -452,7 +533,14 @@ echo "  xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"\n";
 echo "  xmlns:rdfs=\"http://www.w3.org/2000/01/rdf-schema#\"\n";
 echo "  xmlns:dc=\"http://purl.org/dc/elements/1.1/\"\n";
 echo "  xmlns:dcterms=\"http://purl.org/dc/terms/\"\n";
-echo "  xmlns:sioc=\"http://rdfs.org/sioc/ns#\">\n";
+echo "  xmlns:sioc=\"http://rdfs.org/sioc/ns#\"";
+/**if ( $args[ iao ] )
+{
+    echo "\n";    
+    echo "  xmlns:iao=\"http://purl.obolibrary.org/obo/iao/dev/iao-main.owl/\">\n";
+}
+else**/
+    echo " xmlns:ex=\"http://www.example.org/#\">\n";
 
 /* We need echo the Site and Forum only once, on the first thread. */
 $echoSite  = 1;
@@ -465,7 +553,7 @@ while ( $file = readdir( $dir ) )
     if ( $file != "." && $file != ".." && preg_match( '/^t-/i',     $file ) &&
     /**/                                  preg_match( '/.html\z/i', $file ) )
     {
-        doOneFile( $directory, $file, $echoSite, $echoForum, $keywords );
+        doOneFile( $directory, $file, $echoSite, $echoForum, $sioc, $iao, $keywords );
         $echoSite  = 0;
         $echoForum = 0;
         }
